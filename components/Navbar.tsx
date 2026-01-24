@@ -30,9 +30,11 @@ const Navbar: React.FC<NavbarProps> = ({ currentView, setCurrentView, currentUse
         <div className="flex items-center justify-between h-20">
           {/* Logo Section */}
           <div className="flex-shrink-0 flex items-center cursor-pointer group" onClick={() => handleNavClick(View.HOME)}>
-            <div className="w-10 h-10 bg-gradient-to-br from-white to-gray-400 rounded-sm flex items-center justify-center mr-3 group-hover:scale-105 transition-transform">
-               <span className="text-black font-bold text-xs">Logo</span>
-            </div>
+            <img
+  src="https://sbhsscienceclub.netlify.app/logo.png"
+  alt="Science Club Logo"
+  className="h-10 w-auto mr-3 group-hover:scale-105 transition-transform rounded-sm"
+/>
             <div className="flex flex-col">
               <h1 className="text-xl font-bold tracking-wider text-white group-hover:text-cyan-400 transition-colors">SCIENCE CLUB</h1>
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Siddheswari Boys' Higher Secondary School</p>
