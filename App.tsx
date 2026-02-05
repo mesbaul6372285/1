@@ -256,19 +256,20 @@ const MembersView: React.FC<{ members: Member[], currentUser: Member | null }> =
 // 5. REGISTER VIEW (Detailed Form)
 const RegisterView: React.FC<{ onSuccess: () => void }> = ({ onSuccess }) => {
   const [formData, setFormData] = useState<Partial<Member>>({
-    name: '', fatherName: '', motherName: '', 
+    name: '', fatherName: '', motherName: '',
     dob: '', bloodGroup: '', birthCertNo: '',
-    class: '', roll: '', mobile: '', 
+     class: '', roll: '', mobile: '',
     presentAddress: '', permanentAddress: '', password: ''
   });
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState('');
-
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -284,6 +285,8 @@ const RegisterView: React.FC<{ onSuccess: () => void }> = ({ onSuccess }) => {
         return;
       }
     }
+    
+    setIsSubmitting(true);
 
     try {
       const newMember: Member = {
@@ -294,11 +297,12 @@ const RegisterView: React.FC<{ onSuccess: () => void }> = ({ onSuccess }) => {
         joinedDate: new Date().toISOString()
       };
       
-      DB.saveMember(newMember);
+      await DB.saveMember(newMember);
       alert('Application Submitted Successfully! Your Member ID will be generated upon Admin Approval.');
       onSuccess();
     } catch (err: any) {
       setError(err.message);
+      setIsSubmitting(false);
     }
   };
 
@@ -373,7 +377,7 @@ const RegisterView: React.FC<{ onSuccess: () => void }> = ({ onSuccess }) => {
           {error && <div className="p-3 bg-red-500/20 border border-red-500/50 rounded text-red-400 text-sm flex items-center gap-2"><AlertTriangle size={16}/>{error}</div>}
 
           <div className="pt-4 border-t border-white/10 flex justify-end">
-            <button type="submit" className="px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-lg shadow-lg shadow-cyan-900/50 transition-all">Submit Application</button>
+            <button type="submit" disabled={isSubmitting} className="px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-lg shadow-lg shadow-cyan-900/50 transition-all disabled:opacity-50">{isSubmitting ? 'Submitting...' : 'Submit Application'}</button>
           </div>
         </form>
       </div>
@@ -410,14 +414,14 @@ const MemberDashboard: React.FC<{ member: Member, weeklyFact: WeeklyFact }> = ({
 // 7. ADMIN DASHBOARD
 const AdminDashboard: React.FC<{ currentUser: Member; setCurrentUser: (u: Member) => void }> = ({ currentUser, setCurrentUser }) => {
   const [activeTab, setActiveTab] = useState<'MEMBERS' | 'CMS' | 'SETTINGS'>('MEMBERS');
-  const [members, setMembers] = useState(DB.getMembers());
+   const [members, setMembers] = useState<Member[]>([]);
   
   // CMS States
   const [cmsView, setCmsView] = useState<'PROJECTS' | 'ANNOUNCEMENTS' | 'GALLERY' | 'FACT'>('PROJECTS');
-  const [projects, setProjects] = useState(DB.getProjects());
-  const [announcements, setAnnouncements] = useState(DB.getAnnouncements());
-  const [gallery, setGallery] = useState(DB.getGallery());
-  const [weeklyFact, setWeeklyFact] = useState(DB.getWeeklyFact());
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [weeklyFact, setWeeklyFact] = useState<WeeklyFact>({ title: '', content: '' });
 
   // Editing States
   const [approveId, setApproveId] = useState<string | null>(null); // For Member approval
@@ -432,65 +436,82 @@ const AdminDashboard: React.FC<{ currentUser: Member; setCurrentUser: (u: Member
   // Settings State
   const [adminSettings, setAdminSettings] = useState({ id: currentUser.id, password: currentUser.password });
 
-  const refresh = () => {
-    setMembers(DB.getMembers());
-    setProjects(DB.getProjects());
-    setAnnouncements(DB.getAnnouncements());
-    setGallery(DB.getGallery());
-    setWeeklyFact(DB.getWeeklyFact());
+  // Loading state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const refresh = async () => {
+    setIsRefreshing(true);
+    const [memData, projData, annData, galData, factData] = await Promise.all([
+  DB.getMembers(),
+      DB.getProjects(),
+      DB.getAnnouncements(),
+      DB.getGallery(),
+      DB.getWeeklyFact()
+    ]);
+    setMembers(memData);
+    setProjects(projData);
+    setAnnouncements(annData);
+    setGallery(galData);
+    setWeeklyFact(factData);
+    setIsRefreshing(false);
   };
 
+  // Load data on mount
+  useEffect(() => {
+    refresh();
+  }, []);
+
   // --- Member Management ---
-  const handleApprove = (member: Member) => {
+  const handleApprove = async (member: Member) => {
     if (!newMemberId.trim()) { alert("Please assign a Member ID"); return; }
     
     try {
         const updated = { ...member, id: newMemberId, status: 'APPROVED' as const };
-        DB.replaceMember(member.id, updated);
+        await DB.replaceMember(member.id, updated);
         setApproveId(null);
         setNewMemberId('');
-        refresh();
+        await refresh();
     } catch (e: any) {
         alert(e.message);
     }
   };
 
-  const handleReject = (id: string) => {
+  const handleReject = async (id: string) => {
     if (confirm("Are you sure you want to reject/delete this application?")) {
-      DB.deleteMember(id);
-      refresh();
+      await DB.deleteMember(id);
+      await refresh();
     }
   };
 
-  const handleToggleStatus = (member: Member) => {
+  const handleToggleStatus = async (member: Member) => {
       const newStatus = member.status === 'APPROVED' ? 'REJECTED' : 'APPROVED';
-      DB.updateMember({ ...member, status: newStatus as any });
-      refresh();
+      await DB.updateMember({ ...member, status: newStatus as any });
+      await refresh();
   };
 
-  const handleSaveMemberChanges = (e: React.FormEvent) => {
+  const handleSaveMemberChanges = async (e: React.FormEvent) => {
       e.preventDefault();
       if (editingMember) {
-          DB.updateMember(editingMember);
+          await DB.updateMember(editingMember);
           setEditingMember(null);
-          refresh();
+          await refresh();
       }
   };
 
   // --- CMS Helpers ---
-  const deleteItem = (type: 'PROJ' | 'ANN' | 'GAL', id: number) => {
+  const deleteItem = async (type: 'PROJ' | 'ANN' | 'GAL', id: number) => {
       if(!confirm("Delete item?")) return;
       if (type === 'PROJ') {
           const newD = projects.filter(p => p.id !== id);
-          DB.saveProjects(newD);
+          await DB.saveProjects(newD);
       } else if (type === 'ANN') {
           const newD = announcements.filter(a => a.id !== id);
-          DB.saveAnnouncements(newD);
+          await DB.saveAnnouncements(newD);
       } else if (type === 'GAL') {
           const newD = gallery.filter(g => g.id !== id);
-          DB.saveGallery(newD);
+          await DB.saveGallery(newD);
       }
-      refresh();
+      await refresh();
   };
 
   const openCmsModal = (type: 'PROJ' | 'ANN' | 'GAL' | 'FACT', data?: any) => {
@@ -509,7 +530,7 @@ const AdminDashboard: React.FC<{ currentUser: Member; setCurrentUser: (u: Member
       setCmsModal({ isOpen: true, type, data: initialData });
   };
 
-  const handleSaveCms = (e: React.FormEvent) => {
+  const handleSaveCms = async (e: React.FormEvent) => {
       e.preventDefault();
       const { type, data } = cmsModal;
       
@@ -527,32 +548,32 @@ const AdminDashboard: React.FC<{ currentUser: Member; setCurrentUser: (u: Member
           let newList;
           if (exists) newList = projects.map(p => p.id === finalData.id ? finalData : p);
           else newList = [...projects, finalData];
-          DB.saveProjects(newList);
+          await DB.saveProjects(newList);
       } else if (type === 'ANN') {
           const exists = announcements.find(a => a.id === finalData.id);
           let newList;
           if (exists) newList = announcements.map(a => a.id === finalData.id ? finalData : a);
           else newList = [...announcements, finalData];
-          DB.saveAnnouncements(newList);
+          await DB.saveAnnouncements(newList);
       } else if (type === 'GAL') {
           const exists = gallery.find(g => g.id === finalData.id);
           let newList;
           if (exists) newList = gallery.map(g => g.id === finalData.id ? finalData : g);
           else newList = [...gallery, finalData];
-          DB.saveGallery(newList);
+          await DB.saveGallery(newList);
       } else if (type === 'FACT') {
-          DB.saveWeeklyFact(finalData);
+          await DB.saveWeeklyFact(finalData);
       }
       setCmsModal({ ...cmsModal, isOpen: false });
-      refresh();
+      await refresh();
   };
 
   // --- Settings Management ---
-  const handleUpdateAdmin = () => {
+  const handleUpdateAdmin = async () => {
       try {
         const oldId = currentUser.id;
         const updatedProfile = { ...currentUser, id: adminSettings.id, password: adminSettings.password };
-        DB.replaceMember(oldId, updatedProfile);
+        await DB.replaceMember(oldId, updatedProfile);
         setCurrentUser(updatedProfile);
         alert("Admin credentials updated.");
       } catch (e: any) {
@@ -630,7 +651,94 @@ const AdminDashboard: React.FC<{ currentUser: Member; setCurrentUser: (u: Member
                                <>
                                 <button onClick={() => setEditingMember(m)} className="text-cyan-400 hover:text-cyan-300 px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/30 flex items-center gap-1"><Edit size={12} /> Edit</button>
                                 <button onClick={() => handleToggleStatus(m)} className="text-yellow-400 hover:text-yellow-300 px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/30">{m.status === 'APPROVED' ? 'Disable' : 'Enable'}</button>
-                                <button onClick={() => { if(confirm("Reset Password to '1234'?")) { DB.updateMember({...m, password:'1234'}); alert("Password reset to 1234"); }}} className="text-blue-400 hover:text-blue-300 px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30">Reset Pass</button>
+                                <button onClick={() => { if(confirm("Reset Password to '1234'?")) { DB.updateMember({...m, password:'1234'}).then(() => alert("Password reset to 1234")); }}} className="text-blue-400 hover:text-blue-300 px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30">Reset Pass</button>
+                               </>
+                             )}
+                           </td>
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [creds, setCreds] = useState({ id: '', password: '' });
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      const members = await DB.getMembers();
+      const user = members.find(m => m.id === creds.id && m.password === creds.password);
+
+
+      if (!user) {
+        setError('Invalid Credentials');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (isAdminMode && user.role !== 'ADMIN') {
+        setError('Access Denied: Not an Admin Account');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (user.status === 'PENDING') {
+        setError('Your application is still pending approval.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (user.status === 'REJECTED') {
+        setError('Account Disabled/Rejected.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      onSuccess(user);
+    } catch (err) {
+      setError('An error occurred. Please try again.');
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+
+           {error && <p className="text-red-400 text-xs text-center bg-red-500/10 py-2 rounded border border-red-500/20">{error}</p>}
+           
+           <button type="submit" disabled={isSubmitting} className={`w-full text-white font-bold py-3 rounded-lg transition-all disabled:opacity-50 ${isAdminMode ? 'bg-red-600 hover:bg-red-500' : 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:shadow-lg hover:shadow-cyan-500/20'}`}>
+             {isSubmitting ? 'Logging in...' : (isAdminMode ? 'Admin Login' : 'Login')}
+           </button>
+        </form>
+
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [weeklyFact, setWeeklyFact] = useState<WeeklyFact>({ title: "Weekly Fact: Quantum Entanglement", content: "Did you know? When two particles become entangled..." });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      await DB.init();
+      const [annData, projData, galData, memData, factData] = await Promise.all([
+        DB.getAnnouncements(),
+        DB.getProjects(),
+        DB.getGallery(),
+        DB.getMembers(),
+        DB.getWeeklyFact()
+      ]);
+      setAnnouncements(annData);
+      setProjects(projData);
+      setGallery(galData);
+      setMembers(memData);
+      setWeeklyFact(factData);
+      setIsLoading(false);
+    };
+    loadData();
+  }, [currentView, currentUser]); 
+
+  useEffect(() => {
+
                                </>
                              )}
                            </td>
